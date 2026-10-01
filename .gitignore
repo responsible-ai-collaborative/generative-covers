@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# generative-covers
+# downloaded AIID snapshots
+.cache/
+# locally saved images from `generate --output-dir`
+output/
+# the gallery is tracked even though the Python template ignores mkdocs' /site
+!/site/
+# built by the workflow from Cloudinary, never committed
+site/manifest.json

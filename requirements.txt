@@ -1,0 +1,4 @@
+# Runtime dependencies for the cover-generation job (python -m generative_covers).
+pymongo==4.18.2      # provides the `bson` module used to read the AIID MongoDB snapshot
+cloudinary==1.46.2   # upload + admin API client
+requests==2.34.2

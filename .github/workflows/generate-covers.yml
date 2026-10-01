@@ -1,0 +1,152 @@
+# Generates candidate cover images for AI Incident Database incidents whose reports have
+# no image, stores them in Cloudinary, and publishes the editor gallery to GitHub Pages.
+#
+# Runs every day (cron) and on demand (workflow_dispatch). Pushes to main that touch the
+# site or the code only republish the gallery without generating anything.
+name: Generate incident covers
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily at 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      max_images:
+        description: "Maximum number of new covers to generate in this run (-1 for no limit)"
+        type: string
+        default: "100"
+      incident_ids:
+        description: "Only these incident IDs, comma-separated. Blank = every incident without a report image."
+        type: string
+        default: ""
+      force:
+        description: "Regenerate covers that already exist (use together with incident_ids)"
+        type: boolean
+        default: false
+      dry_run:
+        description: "List what would be generated without calling the image or upload APIs"
+        type: boolean
+        default: false
+      quality:
+        description: "Image quality (cost rises with quality)"
+        type: choice
+        options: [low, medium, high]
+        default: low
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "generative_covers/**"
+      - "requirements.txt"
+      - ".github/workflows/generate-covers.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: generate-covers
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  SNAPSHOT_CACHE_DIR: .cache/aiid-snapshot
+  CLOUDINARY_FOLDER: ${{ vars.CLOUDINARY_FOLDER || 'generative-covers' }}
+  IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'openai/gpt-5-image-mini' }}
+
+jobs:
+  generate:
+    name: Generate covers
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Find the newest AIID snapshot
+        id: snapshot
+        run: echo "key=$(python -m generative_covers snapshot-key)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the snapshot download
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SNAPSHOT_CACHE_DIR }}
+          key: aiid-snapshot-${{ steps.snapshot.outputs.key }}
+
+      - name: Generate and upload covers
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          SNAPSHOT_KEY: ${{ steps.snapshot.outputs.key }}
+          MAX_IMAGES: ${{ inputs.max_images || '100' }}
+          INCIDENT_IDS: ${{ inputs.incident_ids }}
+          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          IMAGE_QUALITY: ${{ inputs.quality || 'low' }}
+          CONCURRENCY: ${{ vars.CONCURRENCY || '4' }}
+        run: python -m generative_covers generate --results-file results.json
+
+      - name: Keep the run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-report
+          path: results.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  publish:
+    name: Publish gallery
+    needs: generate
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Find the newest AIID snapshot
+        id: snapshot
+        run: echo "key=$(python -m generative_covers snapshot-key)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the snapshot download
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SNAPSHOT_CACHE_DIR }}
+          key: aiid-snapshot-${{ steps.snapshot.outputs.key }}
+
+      - name: Build the gallery manifest from Cloudinary
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          SNAPSHOT_KEY: ${{ steps.snapshot.outputs.key }}
+        run: python -m generative_covers manifest --out site/manifest.json
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
