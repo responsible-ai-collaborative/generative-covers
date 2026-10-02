@@ -2,7 +2,7 @@
 
 Commands
 --------
-snapshot-key   Print a cache id for the newest AIID snapshot (daily if R2 is configured, else weekly).
+snapshot-key   Print a cache id for the newest AIID snapshot (daily when the feed is configured and fresh, else weekly).
 generate       Generate covers for the most recent incidents that have no report image, and upload them.
 manifest       Write site/manifest.json from the covers stored in Cloudinary.
 
@@ -85,23 +85,23 @@ def configure_cloudinary() -> str:
     return cloud_name
 
 
-def resolve_ref(args, r2: aiid.R2Config | None) -> aiid.SnapshotRef:
+def resolve_ref(args, feed: aiid.DailyFeed | None) -> aiid.SnapshotRef:
     key = args.snapshot_key
     if not key:
-        return aiid.latest_ref(r2)
+        return aiid.latest_ref(feed)
     if key.startswith(aiid.DAILY_PREFIX):
-        if r2 is None:
-            raise SystemExit(f"{key} is a daily snapshot but R2 is not configured")
-        return aiid.daily_ref(r2, key)
+        if feed is None:
+            raise SystemExit(f"{key} is a daily snapshot but {aiid.DAILY_URL_ENV} is not set")
+        return aiid.daily_ref(feed, key)
     return aiid.SnapshotRef("weekly", key)
 
 
 def get_snapshot(args) -> aiid.Snapshot:
-    r2 = aiid.R2Config.from_env()
-    ref = resolve_ref(args, r2)
-    snapshot = aiid.fetch_snapshot(Path(args.cache_dir), r2=r2, ref=ref)
+    feed = aiid.DailyFeed.from_env()
+    ref = resolve_ref(args, feed)
+    snapshot = aiid.fetch_snapshot(Path(args.cache_dir), feed=feed, ref=ref)
     if snapshot.source != "daily":
-        warn("Using the public weekly snapshot; set the CLOUDFLARE_R2_* settings to read the private daily one")
+        warn("Using the public weekly snapshot (no fresh daily snapshot was available or the daily feed is not configured)")
     return snapshot
 
 
@@ -111,8 +111,7 @@ def _md(text: str) -> str:
 
 # --------------------------------------------------------------------------- commands
 def cmd_snapshot_key(args) -> int:
-    r2 = aiid.R2Config.from_env()
-    print(aiid.latest_ref(r2).cache_id)
+    print(aiid.latest_ref(aiid.DailyFeed.from_env()).cache_id)
     return 0
 
 
@@ -367,8 +366,6 @@ def main(argv: list[str] | None = None) -> int:
     # The Cloudinary SDK shares one small connection pool; with concurrent uploads urllib3 logs a
     # harmless "connection pool is full" warning for every discarded connection. Keep it quiet.
     logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
-    for noisy in ("boto3", "botocore", "s3transfer", "urllib3"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
     if getattr(args, "no_upload", False) and not getattr(args, "output_dir", None) \
             and not getattr(args, "dry_run", False):
         raise SystemExit("--no-upload needs --output-dir, otherwise generated images would be discarded")

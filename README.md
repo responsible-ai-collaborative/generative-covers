@@ -11,9 +11,11 @@ and copy their URLs.
 
 ## How it works
 
-1. **Read the newest snapshot.** The job prefers the private *daily* MongoDB dump that the AIID writes
-   to Cloudflare R2 every morning (`daily-DD.tar.bz2`, overwritten monthly). When the R2 settings are
-   missing it falls back to the public *weekly* snapshot listed at
+1. **Read the newest snapshot.** The job prefers the *daily* MongoDB dump the AIID produces each
+   morning. Its location is not public and is supplied through the `AIID_DAILY_SNAPSHOT_URL` secret;
+   files there are named by day of month and overwritten a month later, so the job checks each file's
+   `Last-Modified` header and only uses one written within the last 24 hours. When no fresh daily file
+   is available (or the secret is missing) it falls back to the public *weekly* snapshot listed at
    https://incidentdatabase.ai/research/snapshots/ and says so in the job summary. (The GraphQL API only
    accepts browser origins, so snapshots are the supported route for automation.)
 2. **Look only at the most recent incidents.** By default the 10 highest incident IDs are in scope. An
@@ -52,16 +54,13 @@ Repository **secrets** (Settings → Secrets and variables → Actions):
 | `OPENROUTER_API_KEY` | OpenRouter key used for both the brief model and the image model |
 | `CLOUDINARY_API_KEY` | Cloudinary API key. On Cloudinary's Roles and Permissions system the key needs the **Master Admin** role (Console Settings → API Keys), otherwise uploads fail with `missing permissions (actions=["create"])` |
 | `CLOUDINARY_API_SECRET` | Cloudinary API secret |
-| `CLOUDFLARE_R2_ACCESS_KEY_ID` | R2 access key with **read** access to the daily snapshot bucket |
-| `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | Its secret |
+| `AIID_DAILY_SNAPSHOT_URL` | Base URL of the daily snapshot files (`<url>/daily-DD.tar.bz2`). Treated as confidential: never commit it or print it |
 
 Repository **variables**:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CLOUDINARY_CLOUD_NAME` | *(required)* | Cloud name of the Cloudinary product environment that receives the images. A variable rather than a secret because it is public and would otherwise be masked in job summaries |
-| `CLOUDFLARE_R2_ACCOUNT_ID` | *(required for daily snapshots)* | Cloudflare account that owns the snapshot buckets |
-| `CLOUDFLARE_R2_DAILY_BUCKET_NAME` | *(required for daily snapshots)* | Private bucket holding `daily-DD.tar.bz2` |
 | `CLOUDINARY_FOLDER` | `generative-covers` | Folder (public ID prefix) for the covers |
 | `IMAGE_MODEL` | `openai/gpt-5-image-mini` | Any OpenRouter model that outputs images |
 | `BRIEF_MODEL` | `openai/gpt-5-mini` | Any OpenRouter chat model with JSON output |
@@ -72,8 +71,8 @@ GitHub Pages must be set to **Source: GitHub Actions** (Settings → Pages). The
 
 ## Running
 
-- **Daily:** the `schedule` trigger runs at 09:17 UTC, two hours after the AIID daily snapshot is
-  written. It generates covers for incidents among the 10 most recent that lack a report image and do
+- **Daily:** the `schedule` trigger runs at 09:17 UTC, after the AIID daily snapshot has been written.
+  It generates covers for incidents among the 10 most recent that lack a report image and do
   not have a cover yet, then republishes the gallery. No new incidents, no images.
 - **Manually:** Actions → *Generate incident covers* → *Run workflow*. Inputs:
   - `recent_window` – how many of the most recent incident IDs to consider (default 10; `0` means every
@@ -111,7 +110,7 @@ real image since generation.
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt   # or python -m venv + pip
 source .venv/bin/activate
 
-# What would be generated? (uses the public weekly snapshot unless the CLOUDFLARE_R2_* variables are set)
+# What would be generated? (uses the public weekly snapshot unless AIID_DAILY_SNAPSHOT_URL is set)
 python -m generative_covers generate --dry-run
 
 # Generate one incident locally without touching Cloudinary; writes the image, brief and prompt to output/
@@ -119,7 +118,7 @@ OPENROUTER_API_KEY=... python -m generative_covers generate --no-upload --output
 
 # Full run against Cloudinary and the daily snapshot
 export OPENROUTER_API_KEY=... CLOUDINARY_CLOUD_NAME=... CLOUDINARY_API_KEY=... CLOUDINARY_API_SECRET=...
-export CLOUDFLARE_R2_ACCOUNT_ID=... CLOUDFLARE_R2_DAILY_BUCKET_NAME=... CLOUDFLARE_R2_ACCESS_KEY_ID=... CLOUDFLARE_R2_SECRET_ACCESS_KEY=...
+export AIID_DAILY_SNAPSHOT_URL=...
 python -m generative_covers generate
 
 # Build the gallery manifest and serve the site
@@ -170,8 +169,9 @@ The OpenRouter key's spending limit is visible at https://openrouter.ai/settings
   the key came from.
 - **`Request forbidden due to missing permissions (actions=["create"])`** – the API key can read but not
   upload. Give it the Master Admin role in Console Settings → API Keys, or use the environment's root API key.
-- **"Using the public weekly snapshot"** warning – one of the four `CLOUDFLARE_R2_*` settings is missing
-  or the key cannot list the bucket. The job still works, up to a week behind.
+- **"Using the public weekly snapshot"** warning – `AIID_DAILY_SNAPSHOT_URL` is missing, or no daily
+  file written within the last 24 hours was found (the log says how old the newest one was). The job
+  still works, up to a week behind.
 - **Gallery shows "The listing could not be built"** – the publish job could not reach Cloudinary;
   the message names the cause. The job still deploys so the problem is visible.
 - **Nothing generated** – no incident among the most recent ones lacks an image, or they all have covers.

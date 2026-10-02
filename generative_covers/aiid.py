@@ -2,8 +2,9 @@
 
 Two sources, same tarball format (a mongodump of the ``aiidprod`` database):
 
-* **Daily** (preferred): ``daily-DD.tar.bz2`` in a private Cloudflare R2 bucket, written every day
-  around 07:27 UTC and overwritten monthly. Needs the R2 account id, bucket name and an access key.
+* **Daily** (preferred): ``daily-DD.tar.bz2`` (DD = day of month, US Eastern) behind a base URL that is
+  not published and must be supplied through ``AIID_DAILY_SNAPSHOT_URL``. Each file is overwritten a
+  month later, so a file is only used when it was written within the last 24 hours.
 * **Weekly** (fallback): ``backup-YYYYMMDDhhmmss.tar.bz2`` in the public bucket listed on
   https://incidentdatabase.ai/research/snapshots/.
 
@@ -17,6 +18,9 @@ import logging
 import os
 import re
 import tarfile
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -113,46 +117,48 @@ class Snapshot:
         return sorted(self.incidents, key=lambda i: i.incident_id, reverse=True)[:count]
 
 
-# --------------------------------------------------------------------------- daily source (R2)
+# --------------------------------------------------------------------------- daily source
+DAILY_URL_ENV = "AIID_DAILY_SNAPSHOT_URL"
+DAILY_MAX_AGE_HOURS = 24
+_DAILY_TZ = ZoneInfo("America/New_York")  # the AIID names the file after the US Eastern calendar day
+
+
 @dataclass
-class R2Config:
-    account_id: str
-    bucket: str
-    access_key_id: str
-    secret_access_key: str
+class DailyFeed:
+    """Location of the rotating daily snapshots. The URL is a secret: never log or print it."""
+    base_url: str
+    max_age_hours: int = DAILY_MAX_AGE_HOURS
 
     @classmethod
-    def from_env(cls) -> "R2Config | None":
-        values = [os.environ.get(name, "").strip() for name in (
-            "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_R2_DAILY_BUCKET_NAME",
-            "CLOUDFLARE_R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")]
-        if all(values):
-            return cls(*values)
-        if any(values):
-            missing = [n for n, v in zip(("CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_R2_DAILY_BUCKET_NAME",
-                                          "CLOUDFLARE_R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"), values) if not v]
-            log.warning("Daily snapshot bucket is only partly configured; missing %s", ", ".join(missing))
-        return None
+    def from_env(cls) -> "DailyFeed | None":
+        url = os.environ.get(DAILY_URL_ENV, "").strip()
+        return cls(url.rstrip("/")) if url else None
 
-    def client(self):
-        import boto3  # imported lazily so the weekly fallback works without it
-        from botocore.config import Config
-        return boto3.client(
-            "s3",
-            endpoint_url=f"https://{self.account_id}.r2.cloudflarestorage.com",
-            aws_access_key_id=self.access_key_id,
-            aws_secret_access_key=self.secret_access_key,
-            region_name="auto",
-            config=Config(signature_version="s3v4", retries={"max_attempts": 4}),
-        )
+    def url_for(self, key: str) -> str:
+        return f"{self.base_url}/{key}"
+
+    def candidate_keys(self, now: datetime | None = None) -> list[str]:
+        """Today's and yesterday's file names in US Eastern and UTC; duplicates removed, order kept."""
+        now = now or datetime.now(timezone.utc)
+        days = []
+        for tz in (_DAILY_TZ, timezone.utc):
+            local = now.astimezone(tz)
+            days += [local.strftime("%d"), (local - timedelta(days=1)).strftime("%d")]
+        seen: list[str] = []
+        for day in days:
+            key = f"{DAILY_PREFIX}{day}.tar.bz2"
+            if key not in seen:
+                seen.append(key)
+        return seen
 
 
 @dataclass
 class SnapshotRef:
     source: str
     key: str
-    modified: str = ""   # YYYY-MM-DD
+    modified: str = ""   # YYYY-MM-DD the file was written
     size: int = 0
+    written_at: datetime | None = None
 
     @property
     def cache_id(self) -> str:
@@ -161,43 +167,74 @@ class SnapshotRef:
         return f"{stem}-{self.modified.replace('-', '')}" if self.modified else stem
 
 
-def latest_daily_ref(r2: R2Config) -> SnapshotRef:
-    client = r2.client()
-    newest = None
-    token = None
-    while True:
-        kwargs = {"Bucket": r2.bucket, "Prefix": DAILY_PREFIX}
-        if token:
-            kwargs["ContinuationToken"] = token
-        page = client.list_objects_v2(**kwargs)
-        for obj in page.get("Contents", []):
-            if obj["Key"].endswith(".tar.bz2") and (newest is None or obj["LastModified"] > newest["LastModified"]):
-                newest = obj
-        token = page.get("NextContinuationToken")
-        if not token:
-            break
-    if newest is None:
-        raise RuntimeError(f"No {DAILY_PREFIX}*.tar.bz2 objects found in R2 bucket {r2.bucket}")
-    return SnapshotRef("daily", newest["Key"], newest["LastModified"].strftime("%Y-%m-%d"), int(newest.get("Size", 0)))
+def _head(feed: DailyFeed, key: str, session: requests.Session, timeout: int = 60) -> SnapshotRef | None:
+    try:
+        resp = session.head(feed.url_for(key), timeout=timeout, allow_redirects=True)
+    except requests.RequestException as exc:
+        log.warning("HEAD %s failed: %s", key, type(exc).__name__)
+        return None
+    if resp.status_code != 200 or not resp.headers.get("Last-Modified"):
+        return None
+    written = parsedate_to_datetime(resp.headers["Last-Modified"]).astimezone(timezone.utc)
+    return SnapshotRef("daily", key, written.strftime("%Y-%m-%d"), int(resp.headers.get("Content-Length") or 0), written)
 
 
-def daily_ref(r2: R2Config, key: str) -> SnapshotRef:
-    """Reference to one specific daily file (used when a run pins a snapshot)."""
-    head = r2.client().head_object(Bucket=r2.bucket, Key=key)
-    return SnapshotRef("daily", key, head["LastModified"].strftime("%Y-%m-%d"), int(head.get("ContentLength", 0)))
+def latest_daily_ref(feed: DailyFeed, session: requests.Session | None = None,
+                     now: datetime | None = None) -> SnapshotRef | None:
+    """The freshest daily file written within the allowed age, or None when none qualifies.
+
+    Files are overwritten a month later, so a name alone says nothing about the content's age; only the
+    Last-Modified header does. Yesterday's file is also considered in case today's has not landed yet.
+    """
+    session = session or requests.Session()
+    now = now or datetime.now(timezone.utc)
+    refs = [r for r in (_head(feed, key, session) for key in feed.candidate_keys(now)) if r]
+    if not refs:
+        log.warning("No daily snapshot files were reachable")
+        return None
+    newest = max(refs, key=lambda r: r.written_at)
+    age = now - newest.written_at
+    if age > timedelta(hours=feed.max_age_hours):
+        log.warning("Newest daily snapshot %s was written %.1f hours ago (limit %d h); treating it as stale",
+                    newest.key, age.total_seconds() / 3600, feed.max_age_hours)
+        return None
+    log.info("Daily snapshot %s written %s (%.1f hours ago)", newest.key,
+             newest.written_at.strftime("%Y-%m-%d %H:%M UTC"), age.total_seconds() / 3600)
+    return newest
 
 
-def download_daily(r2: R2Config, ref: SnapshotRef, cache_dir: Path) -> Path:
+def daily_ref(feed: DailyFeed, key: str, session: requests.Session | None = None) -> SnapshotRef:
+    """Reference to one specific daily file (used when a run pins a snapshot); freshness is enforced."""
+    ref = _head(feed, key, session or requests.Session())
+    if ref is None:
+        raise RuntimeError(f"Daily snapshot {key} is not available")
+    age = datetime.now(timezone.utc) - ref.written_at
+    if age > timedelta(hours=feed.max_age_hours):
+        raise RuntimeError(f"Daily snapshot {key} was written {age.total_seconds() / 3600:.1f} hours ago; "
+                           f"refusing a file older than {feed.max_age_hours} hours")
+    return ref
+
+
+def download_daily(feed: DailyFeed, ref: SnapshotRef, cache_dir: Path, session: requests.Session | None = None,
+                   timeout: int = 600) -> Path:
+    session = session or requests.Session()
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / f"{ref.cache_id}.tar.bz2"
     if target.exists() and target.stat().st_size > 0:
         log.info("Using cached snapshot %s", target)
         return target
-    for stale in cache_dir.glob("daily-*.tar.bz2"):
+    for stale in cache_dir.glob(f"{DAILY_PREFIX}*.tar.bz2"):
         stale.unlink()  # a daily file is only useful for a day; keep the cache dir small
-    log.info("Downloading daily snapshot %s (%s, %.1f MB) from R2", ref.key, ref.modified, ref.size / 1e6)
+    log.info("Downloading daily snapshot %s (%s, %.1f MB)", ref.key, ref.modified, ref.size / 1e6)
     tmp = target.with_suffix(".part")
-    r2.client().download_file(r2.bucket, ref.key, str(tmp))
+    with session.get(feed.url_for(ref.key), stream=True, timeout=timeout) as resp:
+        resp.raise_for_status()
+        with tmp.open("wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                fh.write(chunk)
+    if ref.size and tmp.stat().st_size != ref.size:
+        tmp.unlink()
+        raise RuntimeError(f"Daily snapshot {ref.key} download was incomplete")
     tmp.replace(target)
     return target
 
@@ -246,21 +283,27 @@ def download_weekly(ref: SnapshotRef, cache_dir: Path, session: requests.Session
 
 
 # --------------------------------------------------------------------------- orchestration
-def latest_ref(r2: R2Config | None = None, session: requests.Session | None = None) -> SnapshotRef:
-    """Prefer the private daily snapshot when R2 is configured; otherwise the public weekly one."""
-    if r2 is not None:
-        return latest_daily_ref(r2)
-    log.warning("R2 daily snapshot not configured; using the public weekly snapshot instead")
+def latest_ref(feed: DailyFeed | None = None, session: requests.Session | None = None) -> SnapshotRef:
+    """Prefer a fresh daily snapshot when the feed is configured; otherwise the public weekly one."""
+    session = session or requests.Session()
+    if feed is not None:
+        ref = latest_daily_ref(feed, session)
+        if ref is not None:
+            return ref
+        log.warning("Falling back to the public weekly snapshot")
+    else:
+        log.warning("%s is not set; using the public weekly snapshot", DAILY_URL_ENV)
     return latest_weekly_ref(session)
 
 
-def fetch_snapshot(cache_dir: Path, r2: R2Config | None = None, ref: SnapshotRef | None = None,
+def fetch_snapshot(cache_dir: Path, feed: DailyFeed | None = None, ref: SnapshotRef | None = None,
                    session: requests.Session | None = None) -> Snapshot:
-    ref = ref or latest_ref(r2, session)
+    session = session or requests.Session()
+    ref = ref or latest_ref(feed, session)
     if ref.source == "daily":
-        if r2 is None:
-            raise RuntimeError("A daily snapshot was requested but R2 is not configured")
-        path = download_daily(r2, ref, cache_dir)
+        if feed is None:
+            raise RuntimeError(f"A daily snapshot was requested but {DAILY_URL_ENV} is not set")
+        path = download_daily(feed, ref, cache_dir, session)
     else:
         path = download_weekly(ref, cache_dir, session)
     snapshot = load_snapshot(path, ref.key)

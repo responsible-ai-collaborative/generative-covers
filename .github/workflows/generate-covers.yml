@@ -7,7 +7,7 @@ name: Generate incident covers
 
 on:
   schedule:
-    - cron: "17 9 * * *" # daily at 09:17 UTC, two hours after the AIID daily snapshot lands (07:27 UTC)
+    - cron: "17 9 * * *" # daily at 09:17 UTC, after the AIID daily snapshot has landed
   workflow_dispatch:
     inputs:
       recent_window:
@@ -57,9 +57,6 @@ env:
   CLOUDINARY_FOLDER: ${{ vars.CLOUDINARY_FOLDER || 'generative-covers' }}
   IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'openai/gpt-5-image-mini' }}
   BRIEF_MODEL: ${{ vars.BRIEF_MODEL || 'openai/gpt-5-mini' }}
-  # Private daily snapshot bucket (falls back to the public weekly snapshot when unset)
-  CLOUDFLARE_R2_ACCOUNT_ID: ${{ vars.CLOUDFLARE_R2_ACCOUNT_ID }}
-  CLOUDFLARE_R2_DAILY_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_DAILY_BUCKET_NAME }}
 
 jobs:
   generate:
@@ -80,8 +77,8 @@ jobs:
       - name: Find the newest AIID snapshot
         id: snapshot
         env:
-          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          # Location of the daily snapshots; kept as a secret because the address is not public knowledge
+          AIID_DAILY_SNAPSHOT_URL: ${{ secrets.AIID_DAILY_SNAPSHOT_URL }}
         run: echo "key=$(python -m generative_covers snapshot-key)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the snapshot download
@@ -95,8 +92,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AIID_DAILY_SNAPSHOT_URL: ${{ secrets.AIID_DAILY_SNAPSHOT_URL }}
           RECENT_WINDOW: ${{ inputs.recent_window || '10' }}
           INCIDENT_IDS: ${{ inputs.incident_ids }}
           FORCE: ${{ inputs.force }}
@@ -136,8 +132,8 @@ jobs:
       - name: Find the newest AIID snapshot
         id: snapshot
         env:
-          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          # Location of the daily snapshots; kept as a secret because the address is not public knowledge
+          AIID_DAILY_SNAPSHOT_URL: ${{ secrets.AIID_DAILY_SNAPSHOT_URL }}
         run: echo "key=$(python -m generative_covers snapshot-key)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the snapshot download
@@ -150,8 +146,7 @@ jobs:
         env:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AIID_DAILY_SNAPSHOT_URL: ${{ secrets.AIID_DAILY_SNAPSHOT_URL }}
         run: python -m generative_covers manifest --out site/manifest.json
 
       - uses: actions/configure-pages@v5
