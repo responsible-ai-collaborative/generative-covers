@@ -20,7 +20,7 @@ publishes a gallery where editors can preview the images and copy their URLs.
 3. **Generate.** For every remaining incident (newest first, up to the per-run limit) the prompt in
    [`prompt.txt`](prompt.txt) is filled with the incident number, title and description and sent to
    OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `medium` quality and a 3:2
-   aspect ratio, which costs about $0.01 per image and crops well to the 16:9 frame the AIID uses.
+   aspect ratio, which costs about $0.013 per image and crops well to the 16:9 frame the AIID uses.
 4. **Store.** The PNG is uploaded to Cloudinary as `generative-covers/incident-<number>`, tagged
    `generative-cover` and `incident-<number>`, with the title, model, quality, prompt version and
    generation time stored as contextual metadata.
@@ -59,7 +59,7 @@ GitHub Pages must be set to **Source: GitHub Actions** (Settings → Pages). The
   (newest incidents first) and republishes the gallery, so a backlog drains over a few days.
 - **Manually:** Actions → *Generate incident covers* → *Run workflow*. Inputs:
   - `max_images` – cap for this run (`-1` for no cap; the whole current backlog of ~740 incidents costs
-    roughly $8 at `medium` quality).
+    roughly $10 at `medium` quality).
   - `incident_ids` – comma-separated incident numbers to process instead of the whole backlog.
   - `force` – regenerate even if a cover exists (combine with `incident_ids`; overwrites the asset).
   - `dry_run` – only list what would be generated. Costs nothing.
