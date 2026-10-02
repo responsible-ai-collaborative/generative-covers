@@ -132,6 +132,7 @@ def upload_cover(
     quality: str,
     prompt_version: str,
     overwrite: bool = False,
+    extra_context: dict[str, str] | None = None,
 ) -> Cover:
     """Upload an image for the incident. Existing assets are kept unless overwrite=True."""
     folder = folder.strip("/")
@@ -144,6 +145,9 @@ def upload_cover(
         "prompt_version": prompt_version,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    for key, value in (extra_context or {}).items():
+        if value:
+            context[key] = str(value)[:500]
     # `folder` + a short public_id yields "<folder>/incident-N" in both fixed and dynamic
     # folder modes, and files the asset under that folder in the Media Library.
     result = cloudinary.uploader.upload(

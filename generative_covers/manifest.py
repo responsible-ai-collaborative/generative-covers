@@ -49,6 +49,8 @@ def build_manifest(
         "cloud_name": cloud_name,
         "folder": folder,
         "snapshot_key": snapshot.key if snapshot else None,
+        "snapshot_source": snapshot.source if snapshot else None,
+        "snapshot_modified": snapshot.modified if snapshot else None,
         "incident_count": len(snapshot.incidents) if snapshot else None,
         "incidents_without_report_images": (
             len(snapshot.incidents_without_report_images()) if snapshot else None

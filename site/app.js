@@ -198,7 +198,10 @@
 
     const metaBits = [];
     if (manifest.generated_at) metaBits.push(`Listing updated ${new Date(manifest.generated_at).toLocaleString()}`);
-    if (manifest.snapshot_key) metaBits.push(`AIID snapshot ${manifest.snapshot_key.replace(/^backup-|\.tar\.bz2$/g, "")}`);
+    if (manifest.snapshot_key) {
+      const when = manifest.snapshot_modified || manifest.snapshot_key.replace(/^backup-|\.tar\.bz2$/g, "").slice(0, 8);
+      metaBits.push(`AIID ${manifest.snapshot_source || ""} snapshot ${when}`.replace(/\s+/g, " "));
+    }
     if (manifest.cloud_name) metaBits.push(`Cloudinary ${manifest.cloud_name}/${manifest.folder}`);
     footerMeta.textContent = metaBits.join(" · ");
 

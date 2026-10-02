@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import logging
 import time
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images"
 DEFAULT_MODEL = "openai/gpt-5-image-mini"  # cheapest OpenAI image model on OpenRouter
 DEFAULT_QUALITY = "high"
 DEFAULT_ASPECT_RATIO = "3:2"  # closest supported ratio to the 16:9 crop the AIID displays
+DEFAULT_BACKGROUND = "opaque"  # never ask for transparency; covers must sit on solid white
 APP_REFERER = "https://github.com/responsible-ai-collaborative/generative-covers"
 APP_TITLE = "AIID generative covers"
 
@@ -48,19 +50,50 @@ def load_prompt_template(path) -> str:
     return text
 
 
-def prompt_version(template: str) -> str:
-    """Short fingerprint of the template so stored images can be traced to the prompt that made them."""
-    return hashlib.sha1(template.encode("utf-8")).hexdigest()[:8]
+def prompt_version(*templates: str) -> str:
+    """Short fingerprint of the prompt text(s) so stored images can be traced to the prompt that made them."""
+    digest = hashlib.sha1()
+    for template in templates:
+        digest.update(template.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()[:8]
 
 
-def build_prompt(template: str, incident: Incident) -> str:
-    # Plain replacement (not str.format) so braces inside titles/descriptions cannot break the prompt.
-    description = incident.description or incident.title
-    return (
-        template.replace("{number}", str(incident.incident_id))
-        .replace("{title}", incident.title)
-        .replace("{description}", description)
-    )
+def build_prompt(template: str, incident: Incident, fields: dict[str, str] | None = None) -> str:
+    """Fill the stage-2 template. Plain replacement (not str.format) so braces in titles cannot break it.
+
+    ``fields`` are the brief's scene/subject/key_details/accent/avoid/mood; the incident's own
+    number/title/description placeholders stay available for simpler templates.
+    """
+    values = {
+        "number": str(incident.incident_id),
+        "title": incident.title,
+        "description": incident.description or incident.title,
+    }
+    values.update(fields or {})
+    prompt = template
+    for key, value in values.items():
+        prompt = prompt.replace("{" + key + "}", value)
+    return prompt
+
+
+def flatten_to_white(data: bytes) -> tuple[bytes, str]:
+    """Composite any transparency onto solid white and return PNG bytes. Safe for already-opaque images."""
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        has_alpha = image.mode in ("RGBA", "LA", "P") and (image.mode != "P" or "transparency" in image.info)
+        if has_alpha:
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            background.alpha_composite(rgba)
+            result = background.convert("RGB")
+        elif image.mode != "RGB":
+            result = image.convert("RGB")
+        else:
+            return data, "image/png"
+        out = io.BytesIO()
+        result.save(out, format="PNG", optimize=True)
+        return out.getvalue(), "image/png"
 
 
 def generate_image(
@@ -71,6 +104,7 @@ def generate_image(
     quality: str = DEFAULT_QUALITY,
     aspect_ratio: str = DEFAULT_ASPECT_RATIO,
     output_format: str = "png",
+    background: str = DEFAULT_BACKGROUND,
     timeout: int = 300,
     retries: int = 3,
     session: requests.Session | None = None,
@@ -84,6 +118,7 @@ def generate_image(
         "quality": quality,
         "aspect_ratio": aspect_ratio,
         "output_format": output_format,
+        "background": background,
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -118,9 +153,15 @@ def _parse_response(body: dict, model: str, prompt: str) -> GeneratedImage:
     image = data[0]
     usage = body.get("usage") or {}
     cost = usage.get("cost")
+    raw = base64.b64decode(image["b64_json"])
+    try:
+        pixels, media_type = flatten_to_white(raw)
+    except Exception as exc:  # a decode failure should not lose the image
+        log.warning("Could not inspect image for transparency (%s); storing it as returned", exc)
+        pixels, media_type = raw, image.get("media_type") or "image/png"
     return GeneratedImage(
-        data=base64.b64decode(image["b64_json"]),
-        media_type=image.get("media_type") or "image/png",
+        data=pixels,
+        media_type=media_type,
         model=model,
         cost_usd=float(cost) if cost is not None else None,
         prompt=prompt,

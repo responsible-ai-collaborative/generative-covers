@@ -1,1 +1,12 @@
-Generate an illustrative image for incident {number} of the AI Incident Database. It will serve as the cover for the incident in searches. Use very few colors and emphasize simplistic iconography. Make the picture illustrative, but not artistically rich. Be inspired by the principles of Edward Tufte. Incident number {number} has the title {title} and is described as {description}. Do not include any text.
+Cover illustration for an entry in the AI Incident Database. It appears as a small thumbnail, about 300 pixels wide, beside the incident title in search results, so it must read in a single glance.
+
+Scene: {scene}
+Subject: {subject}
+Key details: {key_details}
+Mood: {mood}
+
+Style: flat vector pictogram guided by Edward Tufte's principles, the most meaning from the least ink. At most three main elements, drawn with a single very dark ink color, uniform bold line weight and simple geometric shapes. One muted accent color ({accent}) appears only on the single most important element. Generous empty space and a centered composition with one clear focal point. Keep every important element inside the middle of the frame so the picture still works when cropped to 16:9. Illustrative, not artistically rich: no gradients, textures, shading, 3D effects or photorealism.
+
+Background: solid pure white filling the entire canvas edge to edge. Fully opaque, never transparent. No vignette, no gradient, no texture, no shadows, no horizon line, no scenery.
+
+Constraints: no text, letters, numbers, signs, labels, logos, watermarks or brand marks anywhere in the image. People are anonymous, generic figures with no identifying features, never likenesses of real individuals. Avoid: {avoid}. Nothing graphic, explicit or frightening; the image must be suitable for a work setting.

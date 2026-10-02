@@ -2,3 +2,5 @@
 pymongo==4.18.2      # provides the `bson` module used to read the AIID MongoDB snapshot
 cloudinary==1.46.2   # upload + admin API client
 requests==2.34.2
+boto3==1.35.97       # reads the private daily snapshot bucket on Cloudflare R2 (S3 API)
+pillow==11.3.0       # flattens any transparency in generated images onto white
