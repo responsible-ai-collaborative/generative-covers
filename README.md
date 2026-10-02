@@ -38,14 +38,14 @@ Repository **secrets** (Settings → Secrets and variables → Actions):
 | Secret | Purpose |
 | --- | --- |
 | `OPENROUTER_API_KEY` | OpenRouter key used for image generation |
-| `CLOUDINARY_CLOUD_NAME` | Cloud name of the Cloudinary product environment that receives the images |
-| `CLOUDINARY_API_KEY` | Cloudinary API key |
+| `CLOUDINARY_API_KEY` | Cloudinary API key. On Cloudinary's Roles and Permissions system the key needs the **Master Admin** role (Console Settings → API Keys), otherwise uploads fail with `missing permissions (actions=["create"])` |
 | `CLOUDINARY_API_SECRET` | Cloudinary API secret |
 
-Optional repository **variables** override defaults without editing the workflow:
+Repository **variables** (Settings → Secrets and variables → Actions → Variables):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `CLOUDINARY_CLOUD_NAME` | *(required)* | Cloud name of the Cloudinary product environment that receives the images. A variable rather than a secret because it is public and would otherwise be masked in job summaries |
 | `CLOUDINARY_FOLDER` | `generative-covers` | Folder (public ID prefix) for the covers |
 | `IMAGE_MODEL` | `openai/gpt-5-image-mini` | Any OpenRouter model that outputs images |
 | `CONCURRENCY` | `4` | Parallel generations per run |
@@ -140,6 +140,8 @@ files in the same folder are ignored.
 - **`cloud_name mismatch`** – the API key belongs to a different Cloudinary product environment than
   `CLOUDINARY_CLOUD_NAME`. Copy the cloud name from the Cloudinary console dashboard of the environment
   the key came from.
+- **`Request forbidden due to missing permissions (actions=["create"])`** – the API key can read but not
+  upload. Give it the Master Admin role in Console Settings → API Keys, or use the environment's root API key.
 - **Gallery shows "The listing could not be built"** – the publish job could not reach Cloudinary;
   the message names the cause. The job still deploys so the problem is visible.
 - **Nothing generated** – all incidents without images already have covers, or `max_images` was 0.

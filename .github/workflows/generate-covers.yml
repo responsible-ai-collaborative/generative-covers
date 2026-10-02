@@ -50,6 +50,8 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
+  # The cloud name is public (it is in every delivery URL), so it lives in a variable rather than a
+  # secret; as a secret it would be masked and break the image links in the job summary.
   SNAPSHOT_CACHE_DIR: .cache/aiid-snapshot
   CLOUDINARY_FOLDER: ${{ vars.CLOUDINARY_FOLDER || 'generative-covers' }}
   IMAGE_MODEL: ${{ vars.IMAGE_MODEL || 'openai/gpt-5-image-mini' }}
@@ -83,7 +85,7 @@ jobs:
       - name: Generate and upload covers
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_CLOUD_NAME: ${{ vars.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           SNAPSHOT_KEY: ${{ steps.snapshot.outputs.key }}
@@ -135,7 +137,7 @@ jobs:
 
       - name: Build the gallery manifest from Cloudinary
         env:
-          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_CLOUD_NAME: ${{ vars.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           SNAPSHOT_KEY: ${{ steps.snapshot.outputs.key }}

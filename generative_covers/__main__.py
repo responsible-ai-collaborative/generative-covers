@@ -333,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
+    # The Cloudinary SDK shares one small connection pool; with concurrent uploads urllib3 logs a
+    # harmless "connection pool is full" warning for every discarded connection. Keep it quiet.
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
     if getattr(args, "max_images", None) is not None and args.max_images < 0:
         args.max_images = None
     if getattr(args, "no_upload", False) and not getattr(args, "output_dir", None) \
