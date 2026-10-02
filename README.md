@@ -149,7 +149,7 @@ files in the same folder are ignored.
 - **OpenRouter errors** – transient 429/5xx responses are retried three times with backoff; the key's
   spending limit and balance are visible at https://openrouter.ai/settings/keys.
 - **`rejected by the safety system`** – OpenAI's image model refuses some incident descriptions (for
-  example ones involving violence against named people). The incident is logged as failed and simply
+  example ones about nonconsensual sexual imagery). The incident is logged as failed and simply
   retried on later runs; rejections are not billed. Rephrasing is not attempted automatically.
 
 ## License
