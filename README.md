@@ -20,7 +20,7 @@ publishes a gallery where editors can preview the images and copy their URLs.
 3. **Generate.** For every remaining incident (newest first, up to the per-run limit) the prompt in
    [`prompt.txt`](prompt.txt) is filled with the incident number, title and description and sent to
    OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `high` quality and a 3:2
-   aspect ratio, which costs about $0.013 per image and crops well to the 16:9 frame the AIID uses.
+   aspect ratio, which costs about $0.05 per image (about 40 seconds each) and crops well to the 16:9 frame the AIID uses.
 4. **Store.** The PNG is uploaded to Cloudinary as `generative-covers/incident-<number>`, tagged
    `generative-cover` and `incident-<number>`, with the title, model, quality, prompt version and
    generation time stored as contextual metadata.
@@ -59,7 +59,7 @@ GitHub Pages must be set to **Source: GitHub Actions** (Settings → Pages). The
   (newest incidents first) and republishes the gallery, so a backlog drains over a few days.
 - **Manually:** Actions → *Generate incident covers* → *Run workflow*. Inputs:
   - `max_images` – cap for this run (`-1` for no cap; the whole current backlog of ~740 incidents costs
-    roughly $10 at `medium` quality).
+    roughly $36 at `high` quality).
   - `incident_ids` – comma-separated incident numbers to process instead of the whole backlog.
   - `force` – regenerate even if a cover exists (combine with `incident_ids`; overwrites the asset).
   - `dry_run` – only list what would be generated. Costs nothing.
@@ -148,6 +148,9 @@ files in the same folder are ignored.
   Run with `dry_run` to see the candidate list.
 - **OpenRouter errors** – transient 429/5xx responses are retried three times with backoff; the key's
   spending limit and balance are visible at https://openrouter.ai/settings/keys.
+- **`rejected by the safety system`** – OpenAI's image model refuses some incident descriptions (for
+  example ones involving violence against named people). The incident is logged as failed and simply
+  retried on later runs; rejections are not billed. Rephrasing is not attempted automatically.
 
 ## License
 
