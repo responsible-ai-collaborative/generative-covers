@@ -30,7 +30,7 @@ on:
         description: "Image quality (cost rises with quality)"
         type: choice
         options: [low, medium, high]
-        default: medium
+        default: high
   push:
     branches: [main]
     paths:
@@ -93,7 +93,7 @@ jobs:
           INCIDENT_IDS: ${{ inputs.incident_ids }}
           FORCE: ${{ inputs.force }}
           DRY_RUN: ${{ inputs.dry_run }}
-          IMAGE_QUALITY: ${{ inputs.quality || 'medium' }}
+          IMAGE_QUALITY: ${{ inputs.quality || 'high' }}
           CONCURRENCY: ${{ vars.CONCURRENCY || '4' }}
         run: python -m generative_covers generate --results-file results.json
 

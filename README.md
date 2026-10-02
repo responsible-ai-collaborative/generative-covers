@@ -19,7 +19,7 @@ publishes a gallery where editors can preview the images and copy their URLs.
    each incident is generated once. Re-running is cheap and idempotent.
 3. **Generate.** For every remaining incident (newest first, up to the per-run limit) the prompt in
    [`prompt.txt`](prompt.txt) is filled with the incident number, title and description and sent to
-   OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `medium` quality and a 3:2
+   OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `high` quality and a 3:2
    aspect ratio, which costs about $0.013 per image and crops well to the 16:9 frame the AIID uses.
 4. **Store.** The PNG is uploaded to Cloudinary as `generative-covers/incident-<number>`, tagged
    `generative-cover` and `incident-<number>`, with the title, model, quality, prompt version and
@@ -63,7 +63,7 @@ GitHub Pages must be set to **Source: GitHub Actions** (Settings → Pages). The
   - `incident_ids` – comma-separated incident numbers to process instead of the whole backlog.
   - `force` – regenerate even if a cover exists (combine with `incident_ids`; overwrites the asset).
   - `dry_run` – only list what would be generated. Costs nothing.
-  - `quality` – `low`, `medium` (default) or `high`.
+  - `quality` – `low`, `medium` or `high` (default).
 - **On push to `main`** touching `site/`, the code or the workflow, only the gallery is republished.
 
 Each run writes a summary table (incident, title, status, link) to the job summary, uploads
@@ -121,8 +121,8 @@ substituted per incident. Each uploaded image records a short hash of the templa
 regenerated with `incident_ids` + `force`.
 
 The template ends with "Do not include any text." because without it the model rendered the incident
-title inside every image and misspelled it, especially at `low` quality. `medium` is the default quality for
-the same reason; `low` costs about a third as much if the output is acceptable.
+title inside every image and misspelled it, especially at `low` quality. `high` is the default quality; `medium` and
+`low` are considerably cheaper if their output is acceptable.
 
 ## Cloudinary layout
 

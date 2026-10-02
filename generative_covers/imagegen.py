@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images"
 DEFAULT_MODEL = "openai/gpt-5-image-mini"  # cheapest OpenAI image model on OpenRouter
-DEFAULT_QUALITY = "medium"
+DEFAULT_QUALITY = "high"
 DEFAULT_ASPECT_RATIO = "3:2"  # closest supported ratio to the 16:9 crop the AIID displays
 APP_REFERER = "https://github.com/responsible-ai-collaborative/generative-covers"
 APP_TITLE = "AIID generative covers"
