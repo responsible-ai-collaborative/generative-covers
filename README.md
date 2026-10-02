@@ -19,8 +19,8 @@ publishes a gallery where editors can preview the images and copy their URLs.
    each incident is generated once. Re-running is cheap and idempotent.
 3. **Generate.** For every remaining incident (newest first, up to the per-run limit) the prompt in
    [`prompt.txt`](prompt.txt) is filled with the incident number, title and description and sent to
-   OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `low` quality and a 3:2
-   aspect ratio, which costs about $0.0035 per image and crops well to the 16:9 frame the AIID uses.
+   OpenRouter's Image API. The default model is `openai/gpt-5-image-mini` at `medium` quality and a 3:2
+   aspect ratio, which costs about $0.01 per image and crops well to the 16:9 frame the AIID uses.
 4. **Store.** The PNG is uploaded to Cloudinary as `generative-covers/incident-<number>`, tagged
    `generative-cover` and `incident-<number>`, with the title, model, quality, prompt version and
    generation time stored as contextual metadata.
@@ -59,11 +59,11 @@ GitHub Pages must be set to **Source: GitHub Actions** (Settings → Pages). The
   (newest incidents first) and republishes the gallery, so a backlog drains over a few days.
 - **Manually:** Actions → *Generate incident covers* → *Run workflow*. Inputs:
   - `max_images` – cap for this run (`-1` for no cap; the whole current backlog of ~740 incidents costs
-    roughly $3 at `low` quality).
+    roughly $8 at `medium` quality).
   - `incident_ids` – comma-separated incident numbers to process instead of the whole backlog.
   - `force` – regenerate even if a cover exists (combine with `incident_ids`; overwrites the asset).
   - `dry_run` – only list what would be generated. Costs nothing.
-  - `quality` – `low` (default), `medium` or `high`.
+  - `quality` – `low`, `medium` (default) or `high`.
 - **On push to `main`** touching `site/`, the code or the workflow, only the gallery is republished.
 
 Each run writes a summary table (incident, title, status, link) to the job summary, uploads
@@ -120,9 +120,9 @@ substituted per incident. Each uploaded image records a short hash of the templa
 `prompt_version` in its Cloudinary context, so covers made with an older prompt can be identified and
 regenerated with `incident_ids` + `force`.
 
-A note from testing: at `low` quality the model tends to render the incident title inside the image and
-misspells it. If that proves distracting, appending a sentence such as "Do not include any text or
-lettering." to the prompt, or switching `quality` to `medium`, are the two cheapest fixes.
+The template ends with "Do not include any text." because without it the model rendered the incident
+title inside every image and misspelled it, especially at `low` quality. `medium` is the default quality for
+the same reason; `low` costs about a third as much if the output is acceptable.
 
 ## Cloudinary layout
 
